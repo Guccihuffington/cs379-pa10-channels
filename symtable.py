@@ -1,51 +1,67 @@
-"""
-PA 5 dependency: paste in YOUR OWN completed PA 4 symtable.py here.
-
-Complete Environment and check_program below. See
-PA_04_The_USILang_Symbol_Table.md, Part B, for the full requirements.
-"""
-
-from typing import Optional
-
+from typing import Optional, Any
 from parser import Assignment, BinOp, Declaration, Number, Program, Variable
-
 
 class SemanticError(Exception):
     pass
-
-
 class Environment:
     def __init__(self, parent: Optional["Environment"] = None) -> None:
         self.parent = parent
-        self._names: dict = {}  # name -> declaration line, THIS scope only
+        self._names: dict[str, Any] = {}
 
-    def define(self, name: str, line: int) -> None:
-        """
-        Store name -> line in THIS scope. Raise SemanticError if `name`
-        is already defined in THIS scope (not a parent scope --
-        shadowing a parent name is allowed).
-        """
-        # TODO
-        raise NotImplementedError
+    @staticmethod
+    def _describe(value: Any) -> str:
+        return f"line {value}" if isinstance(value, int) else "an earlier declaration"
 
-    def resolve(self, name: str) -> int:
-        """
-        Look up `name` in this scope, then climb `parent` links.
-        Return the declaration line, or raise SemanticError if not
-        found anywhere in the chain.
-        """
-        # TODO
-        raise NotImplementedError
+    def define(self, name: str, value: Any) -> None:
+        if name in self._names:
+            raise SemanticError(
+                f"Duplicate declaration of '{name}' "
+                f"({self._describe(value)}; originally declared at {self._describe(self._names[name])})."
+            )
+        self._names[name] = value
 
+    def resolve(self, name: str) -> Any:
+        env: Optional["Environment"] = self
+        while env is not None:
+            if name in env._names:
+                return env._names[name]
+            env = env.parent
+        raise SemanticError(f"Use of undeclared variable '{name}'.")
+
+def _resolve_at(env: Environment, name: str, line: int) -> int:
+    try:
+        return env.resolve(name)
+    except SemanticError:
+        raise SemanticError(
+            f"Use of undeclared variable '{name}' (line {line})."
+        )
+    
+def _check_expr(env: Environment, expr) -> None:
+    if isinstance(expr, Variable):
+        _resolve_at(env, expr.name, expr.line)
+    elif isinstance(expr, BinOp):
+        _check_expr(env, expr.left)
+        _check_expr(env, expr.right)
+    elif isinstance(expr, Number):
+        pass
+    else:
+        pass
 
 def check_program(ast: Program) -> Environment:
-    """
-    Walk `ast.statements` in order, using one top-level Environment.
-    For a Declaration: resolve every Variable in its expr BEFORE
-    defining the new name (so `let x = x;` fails as use-before-decl).
-    For an Assignment: resolve the assigned-to name, then resolve
-    every Variable in its expr. Errors must surface at the first
-    offending statement, not be collected and reported together.
-    """
-    # TODO
-    raise NotImplementedError
+    global_env = Environment(parent=None)
+
+    for stmt in ast.statements:
+        if isinstance(stmt, Declaration):
+            _check_expr(global_env, stmt.expr)
+            global_env.define(stmt.name, stmt.line)
+
+        elif isinstance(stmt, Assignment):
+            _resolve_at(global_env, stmt.name, stmt.line)
+            _check_expr(global_env, stmt.expr)
+
+        else:
+            raise SemanticError(
+                f"Unknown statement type: {type(stmt).__name__}"
+            )
+
+    return global_env
